@@ -2,7 +2,7 @@
 // @name         MWI Battle HUD
 // @name:zh-CN   MWI Battle HUD
 // @namespace    http://tampermonkey.net/
-// @version      0.3.3
+// @version      0.3.4
 // @description  A compact top-docked HUD for real-time combat information.
 // @description:zh-CN 贴合页面顶部的实时战斗信息 HUD
 // @author       mortymorty
@@ -396,6 +396,43 @@ GM_addStyle(`
 .lll_single_itemCount {
     color: white;
     font-weight: 700;
+}
+.lll_single_tooltip {
+    position: fixed;
+    z-index: 10020;
+    max-width: min(320px, calc(100vw - 16px));
+    padding: 8px 10px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(20, 24, 36, 0.97);
+    color: var(--lll-text);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+}
+.lll_single_tooltip.lll_visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+[data-lll-tooltip="1"] {
+    cursor: help;
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 .lll_single_empty {
     color: var(--lll-text-soft);
@@ -1000,6 +1037,198 @@ GM_addStyle(`
 
     };
 
+    const Tooltip = new class {
+        root = null;
+        target = null;
+        hideTimer = null;
+        showTimer = null;
+        isTouchInteraction = false;
+        touchClickSuppressUntil = 0;
+
+        isHoverCapable() {
+            try {
+                return window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches ?? false;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        ensureRoot() {
+            if (this.root) return this.root;
+            this.root = Ui.div('lll_single_tooltip');
+            this.root.setAttribute('role', 'tooltip');
+            this.root.setAttribute('aria-hidden', 'true');
+            (document.body || document.documentElement)?.appendChild(this.root);
+            return this.root;
+        }
+
+        clearTimers() {
+            if (this.hideTimer) {
+                clearTimeout(this.hideTimer);
+                this.hideTimer = null;
+            }
+            if (this.showTimer) {
+                clearTimeout(this.showTimer);
+                this.showTimer = null;
+            }
+        }
+
+        hide(immediate = false) {
+            this.clearTimers();
+            this.target = null;
+            if (!this.root) return;
+            const applyHide = () => {
+                this.root.classList.remove('lll_visible');
+                this.root.setAttribute('aria-hidden', 'true');
+                this.root.textContent = '';
+            };
+            if (immediate) {
+                applyHide();
+                return;
+            }
+            this.hideTimer = setTimeout(applyHide, 80);
+        }
+
+        position(target) {
+            if (!this.root || !target) return;
+            const rect = target.getBoundingClientRect();
+            const tooltipRect = this.root.getBoundingClientRect();
+            const viewport = window.visualViewport;
+            const viewportWidth = viewport?.width ?? window.innerWidth;
+            const viewportHeight = viewport?.height ?? window.innerHeight;
+            const margin = 10;
+            let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+            let top = rect.bottom + margin;
+
+            if (left < 8) left = 8;
+            if (left + tooltipRect.width > viewportWidth - 8) {
+                left = Math.max(8, viewportWidth - tooltipRect.width - 8);
+            }
+            if (top + tooltipRect.height > viewportHeight - 8) {
+                top = rect.top - tooltipRect.height - margin;
+            }
+            if (top < 8) top = 8;
+
+            this.root.style.left = `${Math.round(left)}px`;
+            this.root.style.top = `${Math.round(top)}px`;
+        }
+
+        show(target, text, immediate = false) {
+            if (!target || !text) return;
+            this.clearTimers();
+            this.target = target;
+            const root = this.ensureRoot();
+            root.textContent = text;
+            root.style.visibility = 'hidden';
+            root.classList.remove('lll_visible');
+            const doShow = () => {
+                if (!this.target || this.target !== target) return;
+                this.position(target);
+                root.style.visibility = 'visible';
+                root.setAttribute('aria-hidden', 'false');
+                root.classList.add('lll_visible');
+            };
+            if (immediate) {
+                doShow();
+            } else {
+                this.showTimer = setTimeout(doShow, 250);
+            }
+        }
+
+        attach(target, getText, options = {}) {
+            if (!target || typeof getText !== 'function') return target;
+            const {
+                hover = true,
+                touch = true,
+                focus = false,
+                focusable = false,
+                stopPropagation = true,
+            } = options;
+            target.dataset.lllTooltip = '1';
+            const label = getText();
+            if (label) target.setAttribute('aria-label', label);
+            target.removeAttribute('title');
+            if (focusable && target.tabIndex < 0) target.tabIndex = 0;
+            if (hover) {
+                target.addEventListener('pointerenter', event => {
+                    if (!this.isHoverCapable()) return;
+                    this.isTouchInteraction = false;
+                    this.show(event.currentTarget, getText(), false);
+                });
+                target.addEventListener('pointerleave', () => {
+                    if (!this.isHoverCapable()) return;
+                    this.hide(false);
+                });
+            }
+            if (focus) {
+                target.addEventListener('focus', event => {
+                    if (!this.isHoverCapable()) return;
+                    this.show(event.currentTarget, getText(), true);
+                });
+                target.addEventListener('blur', () => {
+                    if (!this.isHoverCapable()) return;
+                    this.hide(true);
+                });
+            }
+            if (touch) {
+                target.addEventListener('pointerup', event => {
+                    if (event.pointerType === 'mouse') return;
+                    if (stopPropagation) event.stopPropagation();
+                    this.isTouchInteraction = true;
+                    this.touchClickSuppressUntil = Date.now() + 400;
+                    if (this.target === event.currentTarget && this.root?.classList.contains('lll_visible')) {
+                        this.hide(true);
+                        return;
+                    }
+                    this.show(event.currentTarget, getText(), true);
+                });
+                target.addEventListener('click', event => {
+                    if (Date.now() < this.touchClickSuppressUntil) {
+                        if (stopPropagation) event.stopPropagation();
+                        event.preventDefault();
+                        return;
+                    }
+                    if (this.isHoverCapable()) return;
+                    if (stopPropagation) event.stopPropagation();
+                    this.isTouchInteraction = true;
+                    if (this.target === event.currentTarget && this.root?.classList.contains('lll_visible')) {
+                        this.hide(true);
+                        return;
+                    }
+                    this.show(event.currentTarget, getText(), true);
+                });
+                target.addEventListener('contextmenu', event => {
+                    if (!this.isHoverCapable()) event.preventDefault();
+                });
+            }
+            return target;
+        }
+
+        installGlobalDismiss() {
+            const dismiss = event => {
+                if (!this.root || !this.root.classList.contains('lll_visible')) return;
+                if (this.target && this.target.contains(event.target)) return;
+                this.hide(true);
+            };
+            document.addEventListener('pointerdown', dismiss, true);
+            document.addEventListener('scroll', () => {
+                if (this.root?.classList.contains('lll_visible')) this.hide(true);
+            }, true);
+            window.addEventListener('resize', () => {
+                if (this.root?.classList.contains('lll_visible') && this.target) {
+                    this.position(this.target);
+                }
+            }, { passive: true });
+            window.visualViewport?.addEventListener('resize', () => {
+                if (this.root?.classList.contains('lll_visible') && this.target) {
+                    this.position(this.target);
+                }
+            }, { passive: true });
+        }
+    };
+
+    Tooltip.installGlobalDismiss();
+
     function decompressData(compressed) {
         if (!compressed) return '';
         try {
@@ -1564,6 +1793,7 @@ GM_addStyle(`
             this.collapsed = collapsed;
             if (collapsed) {
                 this.closeSettingsDropdown();
+                Tooltip.hide(true);
             }
             if (!this.root) return;
             this.body.style.display = collapsed ? 'none' : '';
@@ -1595,6 +1825,7 @@ GM_addStyle(`
         close() {
             if (!this.root) return;
             this.closeSettingsDropdown();
+            Tooltip.hide(true);
             this.root.remove();
             this.root = null;
             if (this.outsidePointerHandler) {
@@ -1755,7 +1986,20 @@ GM_addStyle(`
             this.durationText = Ui.div('lll_single_metricValue', '0m 00s');
 
             const gearBtn = Ui.div('lll_single_gearBtn', '⚙️');
-            gearBtn.title = UiLocale.settings[language];
+            Tooltip.attach(gearBtn, () => UiLocale.settings[language], {
+                hover: true,
+                touch: false,
+                focus: true,
+                focusable: true,
+                stopPropagation: false,
+            });
+            gearBtn.setAttribute('role', 'button');
+            gearBtn.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ' && event.code !== 'Space') return;
+                event.preventDefault();
+                event.stopPropagation();
+                this.toggleSettingsDropdown();
+            });
             gearBtn.onclick = event => {
                 event.stopPropagation();
                 this.toggleSettingsDropdown();
@@ -1851,6 +2095,7 @@ GM_addStyle(`
             if (!BattleData.hasBattleData()) {
                 this.applyPlayerLayout(1);
                 this.body.appendChild(Ui.div('lll_single_empty', UiLocale.noBattle[language]));
+                if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
                 return;
             }
 
@@ -1865,7 +2110,10 @@ GM_addStyle(`
                         Ui.div('lll_single_topLootCount', `${Utils.formatNumber(item.count)}`)
                     ]);
                     const itemName = Localizer.hridToName(item.hrid);
-                    badge.title = itemName;
+                    Tooltip.attach(badge, () => itemName, {
+                        hover: true,
+                        touch: true,
+                    });
                     this.topLootContainer.appendChild(badge);
                 });
             }
@@ -1895,6 +2143,7 @@ GM_addStyle(`
 
             players.forEach(player => { grid.appendChild(this.renderPlayer(player, masterHrids)); });
             this.body.appendChild(grid);
+            if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
         }
 
         renderPlayer(player, masterHrids = []) {
@@ -1955,7 +2204,10 @@ GM_addStyle(`
             if (!item) return slot;
 
             slot.appendChild(Ui.itemSvgIcon(item.hrid, 24, true));
-            slot.title = `${Localizer.hridToName(item.hrid)} x${Utils.formatNumber(item.count)}`;
+            Tooltip.attach(slot, () => `${Localizer.hridToName(item.hrid)} x${Utils.formatNumber(item.count)}`, {
+                hover: true,
+                touch: true,
+            });
             return slot;
         }
 
@@ -1972,7 +2224,10 @@ GM_addStyle(`
             if (!ability) return slot;
 
             slot.appendChild(Ui.abilitySvgIcon(ability.hrid, 24, true));
-            slot.title = `${Localizer.hridToName(ability.hrid)} Lv.${Utils.formatNumber(ability.level)}`;
+            Tooltip.attach(slot, () => `${Localizer.hridToName(ability.hrid)} Lv.${Utils.formatNumber(ability.level)}`, {
+                hover: true,
+                touch: true,
+            });
             return slot;
         }
 
@@ -2013,8 +2268,10 @@ GM_addStyle(`
                 Ui.div('lll_single_itemName', Localizer.hridToName(item.hrid)),
                 Ui.div('lll_single_itemCount', `x${Utils.formatNumber(item.count)}`),
             ]);
-            // 新增：设置原生悬浮提示，显示单价与总价
-            row.title = `${UiLocale.unitPriceLabel[language]}: ${Utils.formatPrice(item.unitPrice)}\n${UiLocale.totalPriceLabel[language]}: ${Utils.formatPrice(item.totalPrice)}`;
+            Tooltip.attach(row, () => `${UiLocale.unitPriceLabel[language]}: ${Utils.formatPrice(item.unitPrice)}\n${UiLocale.totalPriceLabel[language]}: ${Utils.formatPrice(item.totalPrice)}`, {
+                hover: true,
+                touch: true,
+            });
             return row;
         }
     }
