@@ -2,7 +2,7 @@
 // @name         MWI Battle HUD
 // @name:zh-CN   MWI Battle HUD
 // @namespace    http://tampermonkey.net/
-// @version      0.3.4
+// @version      0.3.5
 // @description  A compact top-docked HUD for real-time combat information.
 // @description:zh-CN 贴合页面顶部的实时战斗信息 HUD
 // @author       mortymorty
@@ -373,6 +373,15 @@ GM_addStyle(`
 .lll_single_item:hover {
     background: rgba(255, 255, 255, 0.08); /* 悬浮时半透明色块亮起 */
     border-color: rgba(255, 255, 255, 0.1);
+}
+.lll_single_item.lll_lootHighlight {
+    background: rgba(255, 255, 255, 0.13);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+.lll_single_item.lll_lootHighlightSource {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .lll_single_itemPlaceholder {
@@ -1788,12 +1797,114 @@ GM_addStyle(`
         outsidePointerHandler = null;
         escKeyHandler = null;
         collapsed = false;
+        lootHighlightHrid = null;
+        lootHighlightSource = null;
+        lootHighlightMode = null;
+        lootHighlightPointerX = null;
+        lootHighlightPointerY = null;
+        lootHighlightClearTimer = null;
+
+        clearLootHighlight(immediate = true) {
+            if (this.lootHighlightClearTimer) {
+                clearTimeout(this.lootHighlightClearTimer);
+                this.lootHighlightClearTimer = null;
+            }
+            this.lootHighlightHrid = null;
+            this.lootHighlightSource = null;
+            this.lootHighlightMode = null;
+            if (immediate) {
+                this.syncLootHighlight();
+                return;
+            }
+            this.syncLootHighlight();
+        }
+
+        scheduleLootHighlightClear(delay = 80) {
+            if (this.lootHighlightClearTimer) clearTimeout(this.lootHighlightClearTimer);
+            this.lootHighlightClearTimer = setTimeout(() => {
+                this.lootHighlightClearTimer = null;
+                this.clearLootHighlight(true);
+            }, delay);
+        }
+
+        setLootHighlight(hrid, source = null, mode = 'hover') {
+            if (!hrid) {
+                this.clearLootHighlight(true);
+                return;
+            }
+            if (this.lootHighlightClearTimer) {
+                clearTimeout(this.lootHighlightClearTimer);
+                this.lootHighlightClearTimer = null;
+            }
+            this.lootHighlightHrid = hrid;
+            this.lootHighlightSource = source;
+            this.lootHighlightMode = mode;
+            this.syncLootHighlight();
+        }
+
+        toggleLootHighlight(hrid, source = null) {
+            if (!hrid) return;
+            if (this.lootHighlightHrid === hrid && this.lootHighlightSource === source) {
+                this.clearLootHighlight(true);
+                return;
+            }
+            this.setLootHighlight(hrid, source, 'touch');
+        }
+
+        trackLootPointer(event) {
+            if (event.pointerType && event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+            if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
+            this.lootHighlightPointerX = event.clientX;
+            this.lootHighlightPointerY = event.clientY;
+        }
+
+        restoreHoverLootHighlight() {
+            if (this.lootHighlightMode !== 'hover' || !this.lootHighlightHrid) return;
+            const x = this.lootHighlightPointerX;
+            const y = this.lootHighlightPointerY;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+            const hovered = document.elementFromPoint(x, y)?.closest?.('.lll_single_item[data-loot-hrid]');
+            if (hovered && hovered.dataset.lootHrid === this.lootHighlightHrid) {
+                this.setLootHighlight(this.lootHighlightHrid, hovered, 'hover');
+            }
+        }
+
+        syncLootHighlight() {
+            if (!this.root) return;
+            const activeHrid = this.lootHighlightHrid;
+            const rows = [...this.root.querySelectorAll('.lll_single_item[data-loot-hrid]')];
+            let matchedCount = 0;
+            let sourceApplied = false;
+            const sourceInRoot = !!this.lootHighlightSource && this.root.contains(this.lootHighlightSource);
+
+            rows.forEach(row => {
+                row.classList.remove('lll_lootHighlight', 'lll_lootHighlightSource');
+                if (activeHrid && row.dataset.lootHrid === activeHrid) {
+                    matchedCount += 1;
+                    row.classList.add('lll_lootHighlight');
+                    if (!sourceApplied && (row === this.lootHighlightSource || !sourceInRoot)) {
+                        row.classList.add('lll_lootHighlightSource');
+                        sourceApplied = true;
+                    }
+                }
+            });
+
+            if (activeHrid && matchedCount > 0 && !sourceApplied) {
+                const sourceRow = rows.find(row => row.dataset.lootHrid === activeHrid);
+                if (sourceRow) sourceRow.classList.add('lll_lootHighlightSource');
+            }
+
+            if (activeHrid && matchedCount === 0) {
+                this.clearLootHighlight(true);
+            }
+        }
 
         setCollapsed(collapsed) {
             this.collapsed = collapsed;
             if (collapsed) {
                 this.closeSettingsDropdown();
                 Tooltip.hide(true);
+                this.clearLootHighlight(true);
             }
             if (!this.root) return;
             this.body.style.display = collapsed ? 'none' : '';
@@ -1826,6 +1937,7 @@ GM_addStyle(`
             if (!this.root) return;
             this.closeSettingsDropdown();
             Tooltip.hide(true);
+            this.clearLootHighlight(true);
             this.root.remove();
             this.root = null;
             if (this.outsidePointerHandler) {
@@ -2040,6 +2152,7 @@ GM_addStyle(`
                     }
                     return;
                 }
+                this.clearLootHighlight(true);
                 this.setCollapsed(true);
             };
 
@@ -2089,6 +2202,7 @@ GM_addStyle(`
             this.roundText.textContent = `${summary.round}`;
             this.ephText.textContent = `${summary.eph.toFixed(1)}`;
             this.durationText.textContent = Utils.formatDuration(summary.duration);
+            if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
             this.body.replaceChildren();
             this.topLootContainer.replaceChildren();
 
@@ -2096,6 +2210,7 @@ GM_addStyle(`
                 this.applyPlayerLayout(1);
                 this.body.appendChild(Ui.div('lll_single_empty', UiLocale.noBattle[language]));
                 if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
+                this.clearLootHighlight(true);
                 return;
             }
 
@@ -2144,6 +2259,8 @@ GM_addStyle(`
             players.forEach(player => { grid.appendChild(this.renderPlayer(player, masterHrids)); });
             this.body.appendChild(grid);
             if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
+            this.syncLootHighlight();
+            this.restoreHoverLootHighlight();
         }
 
         renderPlayer(player, masterHrids = []) {
@@ -2268,10 +2385,30 @@ GM_addStyle(`
                 Ui.div('lll_single_itemName', Localizer.hridToName(item.hrid)),
                 Ui.div('lll_single_itemCount', `x${Utils.formatNumber(item.count)}`),
             ]);
+            row.dataset.lootHrid = item.hrid;
             Tooltip.attach(row, () => `${UiLocale.unitPriceLabel[language]}: ${Utils.formatPrice(item.unitPrice)}\n${UiLocale.totalPriceLabel[language]}: ${Utils.formatPrice(item.totalPrice)}`, {
                 hover: true,
                 touch: true,
             });
+            if (Tooltip.isHoverCapable()) {
+                row.addEventListener('pointerenter', event => {
+                    this.trackLootPointer(event);
+                    this.setLootHighlight(item.hrid, row);
+                });
+                row.addEventListener('pointermove', event => {
+                    this.trackLootPointer(event);
+                });
+                row.addEventListener('pointerleave', () => {
+                    if (this.lootHighlightHrid === item.hrid) {
+                        this.scheduleLootHighlightClear();
+                    }
+                });
+            } else {
+                row.addEventListener('click', event => {
+                    event.stopPropagation();
+                    this.toggleLootHighlight(item.hrid, row);
+                });
+            }
             return row;
         }
     }
