@@ -2,7 +2,7 @@
 // @name         MWI Battle HUD
 // @name:zh-CN   MWI Battle HUD
 // @namespace    http://tampermonkey.net/
-// @version      0.3.5
+// @version      0.3.6
 // @description  A compact top-docked HUD for real-time combat information.
 // @description:zh-CN 贴合页面顶部的实时战斗信息 HUD
 // @author       mortymorty
@@ -38,6 +38,8 @@ GM_addStyle(`
     --lll-accent: rgb(37, 184, 152);
     --lll-close: rgb(187, 94, 94);
     --lll-close-hover: rgb(228, 117, 117);
+    --lll-consumable-warn: rgb(224, 192, 74);
+    --lll-consumable-high: var(--lll-accent);
 }
 
 .lll_single_popup {
@@ -327,6 +329,14 @@ GM_addStyle(`
 .lll_single_consumableSlotLow {
     border-color: var(--lll-close-hover);
     box-shadow: 0 0 0 1px rgba(228, 117, 117, 0.25) inset;
+}
+.lll_single_consumableSlotWarn {
+    border-color: var(--lll-consumable-warn);
+    box-shadow: 0 0 0 1px rgba(224, 192, 74, 0.24) inset;
+}
+.lll_single_consumableSlotHigh {
+    border-color: var(--lll-consumable-high);
+    box-shadow: 0 0 0 1px rgba(37, 184, 152, 0.24) inset;
 }
 .lll_single_abilityList {
     display: grid;
@@ -671,6 +681,7 @@ GM_addStyle(`
             foodSlotCount: 3,
             foodLowThreshold: 1440,
             drinkLowThreshold: 288,
+            stockHighMultiplier: 3,
         },
         combatAbilities: {
             slotCount: 5,
@@ -1753,12 +1764,21 @@ GM_addStyle(`
                 const lowThreshold = isFoodSlot
                     ? App.combatConsumables.foodLowThreshold
                     : App.combatConsumables.drinkLowThreshold;
+                const highThreshold = lowThreshold * App.combatConsumables.stockHighMultiplier;
+                const count = Number(item.count) || 0;
+                const stockState = count < lowThreshold
+                    ? 'low'
+                    : count >= highThreshold
+                        ? 'high'
+                        : 'warn';
                 return {
                     ...item,
+                    count,
                     slotIndex: index,
                     slotType: isFoodSlot ? 'food' : 'drink',
                     lowThreshold,
-                    isLow: item.count < lowThreshold,
+                    highThreshold,
+                    stockState,
                 };
             });
         }
@@ -2315,7 +2335,17 @@ GM_addStyle(`
         renderConsumableSlot(item) {
             const classes = ['lll_single_consumableSlot'];
             if (!item) classes.push('lll_single_consumableSlotEmpty');
-            if (item?.isLow) classes.push('lll_single_consumableSlotLow');
+            switch (item?.stockState) {
+                case 'low':
+                    classes.push('lll_single_consumableSlotLow');
+                    break;
+                case 'warn':
+                    classes.push('lll_single_consumableSlotWarn');
+                    break;
+                case 'high':
+                    classes.push('lll_single_consumableSlotHigh');
+                    break;
+            }
 
             const slot = Ui.div(classes.join(' '));
             if (!item) return slot;
