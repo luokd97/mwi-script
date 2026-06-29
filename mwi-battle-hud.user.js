@@ -2,7 +2,7 @@
 // @name         MWI Battle HUD
 // @name:zh-CN   MWI Battle HUD
 // @namespace    http://tampermonkey.net/
-// @version      0.3.7
+// @version      0.3.16
 // @description  A compact top-docked HUD for real-time combat information.
 // @description:zh-CN 贴合页面顶部的实时战斗信息 HUD
 // @author       mortymorty
@@ -46,13 +46,14 @@ GM_addStyle(`
     --lll-popup-collapsed-max-width: 720px;
     --lll-player-min-width: 204px;
     --lll-player-gap: 16px;
+    --lll-popup-top-space: calc(env(safe-area-inset-top, 0px) + 1px);
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 8px); /* 给刘海和状态栏留呼吸 */
+    top: var(--lll-popup-top-space); /* 顶部留小间距，同时兼顾刘海和状态栏 */
     left: 50%;
     transform: translateX(-50%);
     z-index: 10000;
     width: min(var(--lll-popup-width), calc(100vw - 12px));
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px);
+    max-height: calc(100dvh - var(--lll-popup-top-space) - 1px);
     box-sizing: border-box;
     color: var(--lll-text);
     background: rgba(28, 32, 47, 0.85); /* 半透明暗色背景 */
@@ -74,18 +75,21 @@ GM_addStyle(`
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 8px;
-    padding: 2px 12px; /* 增加精致的上下和左右间距，更有品质感 */
+    padding: 1px 12px; /* 收窄标题栏高度，保持紧凑 HUD 感 */
     border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 🔴 一条隐约可见的亮色底线 */
-    cursor: default;
     user-select: none;
     background: rgba(0, 0, 0, 0.15); /* 顶部稍微暗色打底，烘托战斗状态 */
     border-top-left-radius: 11px;
     border-top-right-radius: 11px;
     position: relative;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
 }
 .lll_collapsed .lll_single_header {
-    cursor: pointer;
+    cursor: grab;
+}
+.lll_single_popup.lll_dragging .lll_single_header {
+    cursor: grabbing;
 }
 .lll_single_title {
     font-size: 16px;
@@ -106,6 +110,7 @@ GM_addStyle(`
     align-items: center;
     gap: 10px;
     font-size: 13px;
+    line-height: 1.15;
     color: var(--lll-text-soft);
     white-space: nowrap;
 }
@@ -168,8 +173,8 @@ GM_addStyle(`
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     border-radius: 6px;
 }
 .lll_single_gearBtn:hover {
@@ -258,6 +263,10 @@ GM_addStyle(`
     display: grid;
     grid-template-columns: repeat(var(--lll-player-columns), minmax(var(--lll-player-min-width), 1fr));
     gap: var(--lll-player-gap); /* 增大列间距，利用负空间（Negative Space）进行分隔 */
+}
+.lll_single_playersViewport {
+    width: 100%;
+    min-width: 0;
 }
 .lll_single_player {
     background: transparent; /* 完全移除玩家列背景 */
@@ -382,7 +391,7 @@ GM_addStyle(`
 }
 .lll_single_item {
     display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-columns: auto 18px minmax(0, 1fr);
     gap: 6px; /* 稍微增加内部分隔 */
     align-items: center;
     height: 30px;
@@ -429,6 +438,9 @@ GM_addStyle(`
 .lll_single_itemCount {
     color: white;
     font-weight: 700;
+}
+.lll_single_itemCount::before {
+    content: "x";
 }
 .lll_single_tooltip {
     position: fixed;
@@ -520,14 +532,17 @@ GM_addStyle(`
 
 @media (max-width: 600px) {
     .lll_single_popup {
-        width: min(var(--lll-popup-width), calc(100vw - 12px));
-        max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px);
+        width: calc(100vw - 2px);
+        max-height: calc(100dvh - var(--lll-popup-top-space) - 1px);
         font-size: 13px;
+    }
+    .lll_single_popup.lll_collapsed {
+        width: calc(100vw - 2px);
     }
     .lll_single_header {
         grid-template-columns: minmax(0, 1fr) auto;
         grid-template-rows: auto;
-        padding: 6px 8px;
+        padding: 3px 8px;
     }
     .lll_single_headerLeft {
         grid-column: 1;
@@ -556,7 +571,124 @@ GM_addStyle(`
     }
     .lll_single_players {
         gap: 8px;
+    }
+    .lll_mobile-vertical .lll_single_players {
         grid-template-columns: 1fr;
+    }
+    .lll_mobile-horizontal .lll_single_players {
+        grid-template-columns: repeat(var(--lll-player-columns), minmax(var(--lll-player-min-width), 1fr));
+        gap: var(--lll-player-gap);
+    }
+    .lll_mobile-horizontal .lll_single_playersViewport {
+        overflow: hidden;
+    }
+    .lll_single_popup.lll_mobile-horizontal {
+        font-size: 22px;
+    }
+    .lll_mobile-horizontal .lll_single_header {
+        gap: 10px;
+        padding: 4px 10px;
+    }
+    .lll_mobile-horizontal .lll_single_summaryCompact {
+        gap: 10px;
+        font-size: 22px;
+    }
+    .lll_mobile-horizontal .lll_single_metricLabel {
+        font-size: 19px;
+    }
+    .lll_mobile-horizontal .lll_single_metricValue {
+        font-size: 22px;
+    }
+    .lll_mobile-horizontal .lll_single_headerRight {
+        gap: 8px;
+    }
+    .lll_mobile-horizontal .lll_single_gearBtn {
+        width: 40px;
+        height: 40px;
+        font-size: 28px;
+    }
+    .lll_mobile-horizontal .lll_single_playerHeader {
+        padding: 6px 10px;
+        font-size: 22px;
+        line-height: 1.1;
+    }
+    .lll_mobile-horizontal .lll_single_player {
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 0;
+    }
+    .lll_mobile-horizontal .lll_single_player:first-child {
+        border-left: 0;
+    }
+    .lll_mobile-horizontal .lll_single_stats {
+        gap: 8px;
+        padding: 10px;
+    }
+    .lll_mobile-horizontal .lll_single_stat {
+        gap: 10px;
+        line-height: 1.35;
+    }
+    .lll_mobile-horizontal .lll_single_statLabel {
+        font-size: 19px;
+    }
+    .lll_mobile-horizontal .lll_single_statValue {
+        font-size: 22px;
+    }
+    .lll_mobile-horizontal .lll_single_iconRow {
+        gap: 8px;
+        padding: 8px 10px;
+    }
+    .lll_mobile-horizontal .lll_single_iconRowLabel {
+        font-size: 19px;
+    }
+    .lll_mobile-horizontal .lll_single_consumableList {
+        gap: 6px;
+        padding: 8px 10px;
+    }
+    .lll_mobile-horizontal .lll_single_abilityList {
+        gap: 6px;
+        padding: 0 10px 8px;
+    }
+    .lll_mobile-horizontal .lll_single_consumableSlot,
+    .lll_mobile-horizontal .lll_single_abilitySlot {
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+    }
+    .lll_mobile-horizontal .lll_single_item {
+        height: 38px;
+        padding: 6px 8px;
+        font-size: 24px;
+    }
+    .lll_mobile-horizontal .lll_single_itemPlaceholder {
+        min-height: 38px;
+    }
+    .lll_mobile-horizontal .lll_single_itemCount {
+        font-size: 21px;
+    }
+    .lll_mobile-horizontal .lll_single_settingsDropdown {
+        width: min(92vw, 340px);
+    }
+    .lll_mobile-horizontal .lll_single_dropdownRow {
+        min-height: 52px;
+        font-size: 20px;
+    }
+    .lll_mobile-horizontal .lll_single_input {
+        width: 92px;
+        padding: 5px 8px;
+        font-size: 20px;
+    }
+    .lll_mobile-horizontal .lll_single_toggleTrack {
+        width: 52px;
+        height: 30px;
+    }
+    .lll_mobile-horizontal .lll_single_toggleTrack::after {
+        width: 24px;
+        height: 24px;
+        top: 2px;
+        left: 2px;
+    }
+    .lll_mobile-horizontal .lll_single_toggleInput:checked + .lll_single_toggleTrack::after {
+        transform: translateX(22px);
     }
     .lll_single_player {
         border-radius: 6px;
@@ -646,9 +778,9 @@ GM_addStyle(`
         font-size: 14px;
     }
     .lll_single_gearBtn {
-        width: 40px;
-        height: 40px;
-        font-size: 20px;
+        width: 32px;
+        height: 32px;
+        font-size: 18px;
     }
     .lll_single_gearBtn:hover,
     .lll_single_topLootBadge:hover,
@@ -665,6 +797,80 @@ GM_addStyle(`
         max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 64px);
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
+    }
+    .lll_mobile-horizontal .lll_single_item {
+        display: grid;
+        grid-template-columns: max-content 24px minmax(0, 1fr);
+        gap: 5px;
+        align-items: center;
+        justify-content: stretch;
+        height: 38px;
+        min-height: 38px;
+        padding: 5px 6px;
+    }
+    .lll_mobile-horizontal .lll_single_item > svg {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: center;
+        width: 24px;
+        height: 24px;
+    }
+    .lll_mobile-horizontal .lll_single_itemName {
+        grid-column: 3;
+        grid-row: 1;
+        min-width: 0;
+    }
+    .lll_mobile-horizontal .lll_single_itemCount {
+        grid-column: 1;
+        grid-row: 1;
+        justify-self: start;
+        width: auto;
+        min-width: 0;
+        margin-left: 0;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--lll-text);
+        font-size: 20px;
+        line-height: 1;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum";
+    }
+    .lll_mobile-horizontal .lll_single_itemCount::before {
+        content: "";
+    }
+    .lll_mobile-horizontal .lll_single_iconRow {
+        display: block;
+        padding: 6px 8px;
+    }
+    .lll_mobile-horizontal .lll_single_iconRowLabel {
+        display: none;
+    }
+    .lll_mobile-horizontal .lll_single_iconRowBody {
+        min-width: 0;
+    }
+    .lll_mobile-horizontal .lll_single_consumableList {
+        padding: 0;
+    }
+    .lll_mobile-horizontal .lll_single_abilityList {
+        padding: 0;
+    }
+    .lll_mobile-horizontal .lll_single_consumableList {
+        grid-template-columns: repeat(6, 30px);
+        gap: 4px;
+    }
+    .lll_mobile-horizontal .lll_single_consumableSlot {
+        width: 30px;
+        height: 30px;
+        border-radius: 5px;
+    }
+    .lll_mobile-horizontal .lll_single_consumableSlot > svg {
+        width: 22px;
+        height: 22px;
     }
 }
 
@@ -693,7 +899,9 @@ GM_addStyle(`
                 playerPreferredWidth: 220,
                 playerMinWidth: 204,
                 playerGap: 16,
+                mobileHorizontalPlayerGap: 0,
                 bodyHorizontalPadding: 24,
+                mobileBodyHorizontalPadding: 16,
                 popupBorderWidth: 2,
                 collapsedMaxWidth: 720,
             },
@@ -755,6 +963,7 @@ GM_addStyle(`
         optShowDeaths: { zh: '显示死亡次数', en: 'Show Deaths' },
         optShowConsumables: { zh: '显示消耗品', en: 'Show Consumables' },
         optShowAbilities: { zh: '显示技能栏', en: 'Show Abilities' },
+        optMobileHorizontal: { zh: '移动端横向布局', en: 'Mobile Horizontal Layout' },
         abilityRowLabel: { zh: '技能', en: 'Skills' },
         consumableRowLabel: { zh: '消耗品', en: 'Supplies' },
         loot: { zh: '掉落信息', en: 'Loot' },
@@ -762,6 +971,7 @@ GM_addStyle(`
         totalPriceLabel: { zh: '总价', en: 'Total Price' },
         marketLoading: { zh: '市场价格加载中，掉落过滤会在价格可用后刷新。', en: 'Market data is loading. Loot filtering refreshes after prices are ready.' },
         noBattle: { zh: '暂无战斗数据。进入战斗后再打开或等待下一次战斗消息。', en: 'No battle data yet. Open this after entering combat or wait for the next battle message.' },
+        battleSyncing: { zh: '战斗数据同步中，等待下一条战斗消息。', en: 'Battle data is syncing. Waiting for the next combat update.' },
         noLoot: { zh: '无符合阈值的掉落', en: 'No loot above threshold' },
         none: { zh: '无', en: 'None' },
         unknown: { zh: '未知', en: 'Unknown' },
@@ -859,6 +1069,7 @@ GM_addStyle(`
             showDeaths: true,
             showConsumables: true,
             showAbilities: true,
+            mobileHorizontalLayout: true,
         },
     };
 
@@ -1841,12 +2052,121 @@ GM_addStyle(`
         outsidePointerHandler = null;
         escKeyHandler = null;
         collapsed = false;
+        popupPosition = null;
+        headerDrag = null;
+        suppressHeaderClickUntil = 0;
         lootHighlightHrid = null;
         lootHighlightSource = null;
         lootHighlightMode = null;
         lootHighlightPointerX = null;
         lootHighlightPointerY = null;
         lootHighlightClearTimer = null;
+
+        isMobileHorizontalMode() {
+            return Utils.isMobileViewport() && Config.ui.mobileHorizontalLayout;
+        }
+
+        syncPopupModeClass() {
+            if (!this.root) return;
+            this.root.classList.toggle('lll_mobile-horizontal', this.isMobileHorizontalMode());
+            this.root.classList.toggle('lll_mobile-vertical', Utils.isMobileViewport() && !Config.ui.mobileHorizontalLayout);
+        }
+
+        constrainPopupPosition(left, top) {
+            const viewport = window.visualViewport;
+            const viewportWidth = viewport?.width ?? window.innerWidth;
+            const viewportHeight = viewport?.height ?? window.innerHeight;
+            const margin = 1;
+            const rect = this.root.getBoundingClientRect();
+            const maxLeft = Math.max(margin, viewportWidth - rect.width - margin);
+            const headerHeight = this.root.querySelector('.lll_single_header')?.getBoundingClientRect().height ?? 32;
+            const minVisibleHeight = Math.min(rect.height, headerHeight + margin);
+            const maxTop = Math.max(margin, viewportHeight - minVisibleHeight);
+            return {
+                left: Math.round(Utils.clamp(left, margin, maxLeft)),
+                top: Math.round(Utils.clamp(top, margin, maxTop)),
+            };
+        }
+
+        applyPopupPosition(left, top) {
+            if (!this.root) return;
+            const position = this.constrainPopupPosition(left, top);
+            this.popupPosition = position;
+            this.root.style.left = `${position.left}px`;
+            this.root.style.top = `${position.top}px`;
+            this.root.style.transform = 'none';
+            this.root.style.setProperty('--lll-popup-top-space', `${position.top}px`);
+        }
+
+        syncPopupPosition() {
+            if (!this.root || !this.popupPosition) return;
+            this.applyPopupPosition(this.popupPosition.left, this.popupPosition.top);
+        }
+
+        isHeaderDragIgnored(target) {
+            return !!target?.closest?.('.lll_single_gearBtn, .lll_single_settingsDropdown, input, button, select, textarea, a, label');
+        }
+
+        startHeaderDrag(header, event) {
+            if (!this.root || this.isHeaderDragIgnored(event.target)) return;
+            if (event.isPrimary === false || event.button !== 0) return;
+            const rect = this.root.getBoundingClientRect();
+            this.headerDrag = {
+                header,
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                startLeft: rect.left,
+                startTop: rect.top,
+                dragged: false,
+            };
+            try { header.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore capture failures */ }
+        }
+
+        moveHeaderDrag(event) {
+            const drag = this.headerDrag;
+            if (!drag || drag.pointerId !== event.pointerId || !this.root) return;
+
+            const dx = event.clientX - drag.startX;
+            const dy = event.clientY - drag.startY;
+            if (!drag.dragged) {
+                if (Math.hypot(dx, dy) < 4) return;
+                drag.dragged = true;
+                this.root.classList.add('lll_dragging');
+                this.closeSettingsDropdown();
+                Tooltip.hide(true);
+                this.clearLootHighlight(true);
+            }
+
+            event.preventDefault();
+            this.applyPopupPosition(drag.startLeft + dx, drag.startTop + dy);
+        }
+
+        finishHeaderDrag(event) {
+            const drag = this.headerDrag;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+
+            if (drag.dragged) {
+                event.preventDefault?.();
+                event.stopImmediatePropagation?.();
+                this.suppressHeaderClickUntil = Date.now() + 350;
+            }
+
+            this.root?.classList.remove('lll_dragging');
+            try {
+                if (drag.header.hasPointerCapture?.(drag.pointerId)) {
+                    drag.header.releasePointerCapture(drag.pointerId);
+                }
+            } catch (_) { /* ignore capture failures */ }
+            this.headerDrag = null;
+        }
+
+        suppressHeaderClick(event) {
+            if (Date.now() >= this.suppressHeaderClickUntil) return false;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+        }
 
         clearLootHighlight(immediate = true) {
             if (this.lootHighlightClearTimer) {
@@ -1944,6 +2264,7 @@ GM_addStyle(`
         }
 
         setCollapsed(collapsed) {
+            const wasCollapsed = this.collapsed;
             this.collapsed = collapsed;
             if (collapsed) {
                 this.closeSettingsDropdown();
@@ -1951,9 +2272,12 @@ GM_addStyle(`
                 this.clearLootHighlight(true);
             }
             if (!this.root) return;
+            this.syncPopupModeClass();
             this.body.style.display = collapsed ? 'none' : '';
             this.root.classList.toggle('lll_collapsed', collapsed);
             this.root.classList.toggle('lll_mobile-expanded', !collapsed && Utils.isMobileViewport());
+            this.syncPopupPosition();
+            if (wasCollapsed && !collapsed) this.render();
         }
 
         toggleCollapsed() {
@@ -1984,6 +2308,7 @@ GM_addStyle(`
             this.clearLootHighlight(true);
             this.root.remove();
             this.root = null;
+            this.headerDrag = null;
             if (this.outsidePointerHandler) {
                 document.removeEventListener('mousedown', this.outsidePointerHandler, true);
                 document.removeEventListener('touchstart', this.outsidePointerHandler, true);
@@ -2103,6 +2428,17 @@ GM_addStyle(`
                 this.render();
             });
 
+            const mobileHorizontalToggle = Ui.elem('input', {
+                className: 'lll_single_toggleInput',
+                type: 'checkbox',
+                checked: Config.ui.mobileHorizontalLayout,
+            });
+            mobileHorizontalToggle.addEventListener('change', () => {
+                Config.ui.mobileHorizontalLayout = mobileHorizontalToggle.checked;
+                ConfigManager.saveConfig();
+                this.render();
+            });
+
             const makeToggleRow = (label, input) => {
                 return Ui.div('lll_single_dropdownRow', [
                     Ui.div('lll_single_dropdownLabel', label),
@@ -2127,6 +2463,7 @@ GM_addStyle(`
                 makeToggleRow(UiLocale.optShowDeaths[language], deathsToggle),
                 makeToggleRow(UiLocale.optShowConsumables[language], consumablesToggle),
                 makeToggleRow(UiLocale.optShowAbilities[language], abilitiesToggle),
+                makeToggleRow(UiLocale.optMobileHorizontal[language], mobileHorizontalToggle),
             ]);
 
             // 阻止点击事件穿透，从而防止折叠面板
@@ -2182,10 +2519,16 @@ GM_addStyle(`
             ]);
 
             header.onclick = event => {
+                if (this.suppressHeaderClick(event)) return;
                 if (event.target.closest('.lll_single_gearBtn')) return;
                 if (event.target.closest('.lll_single_topLoot')) return;
                 this.toggleCollapsed();
             };
+            header.addEventListener('click', event => { this.suppressHeaderClick(event); }, true);
+            header.addEventListener('pointerdown', event => { this.startHeaderDrag(header, event); }, true);
+            header.addEventListener('pointermove', event => { this.moveHeaderDrag(event); }, true);
+            header.addEventListener('pointerup', event => { this.finishHeaderDrag(event); }, true);
+            header.addEventListener('pointercancel', event => { this.finishHeaderDrag(event); }, true);
 
             this.root = Ui.div('lll_single_popup', [header, this.body]);
 
@@ -2217,27 +2560,58 @@ GM_addStyle(`
 
         applyPlayerLayout(playerCount) {
             const layout = App.ui.layout;
-            const columns = Utils.isMobileViewport() ? 1 : Utils.clamp(playerCount || 1, 1, 5);
-            const totalGapWidth = (columns - 1) * layout.playerGap;
-            const popupWidth = Utils.isMobileViewport()
-                ? Math.min(Math.max(0, window.innerWidth - 12), layout.singlePlayerMinWidth)
+            const isMobile = Utils.isMobileViewport();
+            const useMobileHorizontal = isMobile && Config.ui.mobileHorizontalLayout;
+            const columns = isMobile
+                ? (useMobileHorizontal ? Utils.clamp(playerCount || 1, 1, 5) : 1)
+                : Utils.clamp(playerCount || 1, 1, 5);
+            const playerGap = useMobileHorizontal ? layout.mobileHorizontalPlayerGap : layout.playerGap;
+            const bodyHorizontalPadding = isMobile ? layout.mobileBodyHorizontalPadding : layout.bodyHorizontalPadding;
+            const totalGapWidth = (columns - 1) * playerGap;
+            const gridContentWidth = columns * layout.playerPreferredWidth + totalGapWidth;
+            const popupContentWidth = gridContentWidth + bodyHorizontalPadding + layout.popupBorderWidth;
+            const popupWidth = isMobile
+                ? Math.max(0, window.innerWidth - 2)
                 : Math.max(
                     layout.singlePlayerMinWidth,
-                    columns * layout.playerPreferredWidth
-                        + totalGapWidth
-                        + layout.bodyHorizontalPadding
-                        + layout.popupBorderWidth
+                    popupContentWidth
                 );
-            const gridMinWidth = Utils.isMobileViewport()
-                ? 0
+            const gridMinWidth = isMobile
+                ? (useMobileHorizontal ? columns * layout.playerMinWidth + totalGapWidth : 0)
                 : columns * layout.playerMinWidth + totalGapWidth;
 
             this.root.style.setProperty('--lll-popup-width', `${popupWidth}px`);
             this.root.style.setProperty('--lll-popup-collapsed-max-width', `${layout.collapsedMaxWidth}px`);
             this.root.style.setProperty('--lll-player-min-width', `${layout.playerMinWidth}px`);
-            this.root.style.setProperty('--lll-player-gap', `${layout.playerGap}px`);
+            this.root.style.setProperty('--lll-player-gap', `${playerGap}px`);
 
-            return { columns, gridMinWidth };
+            return {
+                columns,
+                gridMinWidth,
+                useMobileHorizontal,
+                gridContentWidth,
+                popupContentWidth,
+                popupWidth,
+            };
+        }
+
+        resetBodyLayoutState() {
+            if (!this.body) return;
+            this.body.style.overflowX = '';
+            this.body.style.overflowY = '';
+            this.body.style.minHeight = '';
+        }
+
+        renderEmptyState(message) {
+            this.applyPlayerLayout(1);
+            this.syncPopupModeClass();
+            this.resetBodyLayoutState();
+            this.body.replaceChildren();
+            this.topLootContainer?.replaceChildren();
+            this.body.appendChild(Ui.div('lll_single_empty', message));
+            if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
+            this.clearLootHighlight(true);
+            this.syncPopupPosition();
         }
 
         render() {
@@ -2251,10 +2625,7 @@ GM_addStyle(`
             this.topLootContainer.replaceChildren();
 
             if (!BattleData.hasBattleData()) {
-                this.applyPlayerLayout(1);
-                this.body.appendChild(Ui.div('lll_single_empty', UiLocale.noBattle[language]));
-                if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
-                this.clearLootHighlight(true);
+                this.renderEmptyState(BattleData.inBattle ? UiLocale.battleSyncing[language] : UiLocale.noBattle[language]);
                 return;
             }
 
@@ -2282,6 +2653,10 @@ GM_addStyle(`
             }
 
             const players = SinglePageAnalyzer.getPlayers(Config.ui.minUnitPriceK, Config.ui.filterEnabled);
+            if (players.length === 0) {
+                this.renderEmptyState(BattleData.inBattle ? UiLocale.battleSyncing[language] : UiLocale.noBattle[language]);
+                return;
+            }
 
             // --- 【新增：生成全局排序主列表】 ---
             const hridSet = new Set();
@@ -2295,16 +2670,45 @@ GM_addStyle(`
             });
             // ----------------------------------
 
-            const { columns, gridMinWidth } = this.applyPlayerLayout(players.length);
-            const grid = Ui.div('lll_single_players');
-            grid.style.setProperty('--lll-player-columns', columns.toString());
-            if (gridMinWidth > 0) grid.style.minWidth = `${gridMinWidth}px`;
+            const layoutInfo = this.applyPlayerLayout(players.length);
+            this.syncPopupModeClass();
 
+            const grid = Ui.div('lll_single_players');
+            grid.style.setProperty('--lll-player-columns', layoutInfo.columns.toString());
+            if (layoutInfo.useMobileHorizontal) {
+                grid.style.width = `${layoutInfo.gridContentWidth}px`;
+            } else if (layoutInfo.gridMinWidth > 0) {
+                grid.style.minWidth = `${layoutInfo.gridMinWidth}px`;
+            }
             players.forEach(player => { grid.appendChild(this.renderPlayer(player, masterHrids)); });
-            this.body.appendChild(grid);
+
+            if (layoutInfo.useMobileHorizontal) {
+                const viewport = Ui.div('lll_single_playersViewport', [grid]);
+                this.body.style.overflowX = 'hidden';
+                this.body.style.overflowY = 'auto';
+                viewport.style.overflow = 'hidden';
+                viewport.style.width = '100%';
+                viewport.style.display = 'block';
+                this.body.appendChild(viewport);
+                const bodyStyle = window.getComputedStyle(this.body);
+                const bodyPaddingX = (parseFloat(bodyStyle.paddingLeft) || 0) + (parseFloat(bodyStyle.paddingRight) || 0);
+                const measuredBodyWidth = this.body.clientWidth || this.root.clientWidth || window.innerWidth;
+                const availableWidth = Math.max(0, measuredBodyWidth - bodyPaddingX);
+                const scale = layoutInfo.gridContentWidth > 0 && availableWidth > 0 ? Math.min(1, availableWidth / layoutInfo.gridContentWidth) : 1;
+                grid.style.transformOrigin = 'top left';
+                grid.style.transform = scale < 1 ? `scale(${scale})` : 'none';
+                viewport.style.height = grid.scrollHeight > 0 ? `${Math.ceil(grid.scrollHeight * scale)}px` : '';
+            } else {
+                this.body.style.overflowX = 'hidden';
+                this.body.style.overflowY = 'auto';
+                this.body.appendChild(grid);
+                grid.style.transform = 'none';
+                this.body.style.minHeight = '';
+            }
             if (Tooltip.target && !document.contains(Tooltip.target)) Tooltip.hide(true);
             this.syncLootHighlight();
             this.restoreHoverLootHighlight();
+            this.syncPopupPosition();
         }
 
         renderPlayer(player, masterHrids = []) {
@@ -2449,9 +2853,9 @@ GM_addStyle(`
 
         renderLootItem(item) {
             const row = Ui.div('lll_single_item', [
+                Ui.div('lll_single_itemCount', Utils.formatNumber(item.count)),
                 Ui.itemSvgIcon(item.hrid, 20, true),
                 Ui.div('lll_single_itemName', Localizer.hridToName(item.hrid)),
-                Ui.div('lll_single_itemCount', `x${Utils.formatNumber(item.count)}`),
             ]);
             row.dataset.lootHrid = item.hrid;
             Tooltip.attach(row, () => `${UiLocale.unitPriceLabel[language]}: ${Utils.formatPrice(item.unitPrice)}\n${UiLocale.totalPriceLabel[language]}: ${Utils.formatPrice(item.totalPrice)}`, {
