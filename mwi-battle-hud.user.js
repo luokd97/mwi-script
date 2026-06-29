@@ -2,7 +2,7 @@
 // @name         MWI Battle HUD
 // @name:zh-CN   MWI Battle HUD
 // @namespace    http://tampermonkey.net/
-// @version      0.3.6
+// @version      0.3.7
 // @description  A compact top-docked HUD for real-time combat information.
 // @description:zh-CN 贴合页面顶部的实时战斗信息 HUD
 // @author       mortymorty
@@ -39,7 +39,6 @@ GM_addStyle(`
     --lll-close: rgb(187, 94, 94);
     --lll-close-hover: rgb(228, 117, 117);
     --lll-consumable-warn: rgb(224, 192, 74);
-    --lll-consumable-high: var(--lll-accent);
 }
 
 .lll_single_popup {
@@ -304,13 +303,33 @@ GM_addStyle(`
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.lll_single_iconRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--lll-border-soft);
+}
+.lll_single_iconRowLabel {
+    display: none;
+    flex: 0 0 4.8em;
+    color: var(--lll-text-soft);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+.lll_single_iconRowBody {
+    flex: 0 0 auto;
+    min-width: 0;
+}
 .lll_single_consumableList {
     display: grid;
     grid-template-columns: repeat(6, 28px);
     justify-content: start;
     gap: 4px;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--lll-border-soft);
 }
 .lll_single_consumableSlot {
     width: 28px;
@@ -334,17 +353,12 @@ GM_addStyle(`
     border-color: var(--lll-consumable-warn);
     box-shadow: 0 0 0 1px rgba(224, 192, 74, 0.24) inset;
 }
-.lll_single_consumableSlotHigh {
-    border-color: var(--lll-consumable-high);
-    box-shadow: 0 0 0 1px rgba(37, 184, 152, 0.24) inset;
-}
 .lll_single_abilityList {
     display: grid;
     grid-template-columns: repeat(5, 28px);
     justify-content: start;
     gap: 4px;
     padding: 0 8px 6px;
-    border-bottom: 1px solid var(--lll-border-soft);
 }
 .lll_single_abilitySlot {
     width: 28px;
@@ -555,18 +569,26 @@ GM_addStyle(`
         gap: 4px;
         padding: 6px 8px;
     }
+    .lll_single_iconRow {
+        gap: 6px;
+        padding: 6px 8px;
+    }
+    .lll_single_iconRowLabel {
+        display: block;
+        font-size: 12px;
+    }
     .lll_single_stat {
         gap: 6px;
     }
     .lll_single_consumableList {
         grid-template-columns: repeat(6, 32px);
         gap: 6px;
-        padding: 6px 8px;
+        padding: 0;
     }
     .lll_single_abilityList {
         grid-template-columns: repeat(5, 32px);
         gap: 6px;
-        padding: 0 8px 6px;
+        padding: 0;
     }
     .lll_single_consumableSlot,
     .lll_single_abilitySlot {
@@ -733,6 +755,8 @@ GM_addStyle(`
         optShowDeaths: { zh: '显示死亡次数', en: 'Show Deaths' },
         optShowConsumables: { zh: '显示消耗品', en: 'Show Consumables' },
         optShowAbilities: { zh: '显示技能栏', en: 'Show Abilities' },
+        abilityRowLabel: { zh: '技能', en: 'Skills' },
+        consumableRowLabel: { zh: '消耗品', en: 'Supplies' },
         loot: { zh: '掉落信息', en: 'Loot' },
         unitPriceLabel: { zh: '单价', en: 'Unit Price' },
         totalPriceLabel: { zh: '总价', en: 'Total Price' },
@@ -2327,9 +2351,22 @@ GM_addStyle(`
             ]);
         }
 
+        renderLabeledIconRow(label, bodyClass, children) {
+            return Ui.div('lll_single_iconRow', [
+                Ui.div('lll_single_iconRowLabel', label),
+                Ui.div('lll_single_iconRowBody', [
+                    Ui.div(bodyClass, children),
+                ]),
+            ]);
+        }
+
         renderConsumableList(consumables = []) {
             const slots = Array.from({ length: App.combatConsumables.slotCount }, (_, index) => consumables[index] ?? null);
-            return Ui.div('lll_single_consumableList', slots.map(item => this.renderConsumableSlot(item)));
+            return this.renderLabeledIconRow(
+                UiLocale.consumableRowLabel[language],
+                'lll_single_consumableList',
+                slots.map(item => this.renderConsumableSlot(item)),
+            );
         }
 
         renderConsumableSlot(item) {
@@ -2341,9 +2378,6 @@ GM_addStyle(`
                     break;
                 case 'warn':
                     classes.push('lll_single_consumableSlotWarn');
-                    break;
-                case 'high':
-                    classes.push('lll_single_consumableSlotHigh');
                     break;
             }
 
@@ -2360,7 +2394,11 @@ GM_addStyle(`
 
         renderAbilityList(abilities = []) {
             const slots = Array.from({ length: App.combatAbilities.slotCount }, (_, index) => abilities[index] ?? null);
-            return Ui.div('lll_single_abilityList', slots.map(ability => this.renderAbilitySlot(ability)));
+            return this.renderLabeledIconRow(
+                UiLocale.abilityRowLabel[language],
+                'lll_single_abilityList',
+                slots.map(ability => this.renderAbilitySlot(ability)),
+            );
         }
 
         renderAbilitySlot(ability) {
