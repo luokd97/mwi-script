@@ -435,12 +435,13 @@ GM_addStyle(`
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.lll_single_itemName.lll_single_itemNameHighValue {
+    color: #ff9f43;
+    font-weight: 700;
+}
 .lll_single_itemCount {
     color: white;
     font-weight: 700;
-}
-.lll_single_itemCount::before {
-    content: "x";
 }
 .lll_single_tooltip {
     position: fixed;
@@ -494,7 +495,7 @@ GM_addStyle(`
 /* 下拉菜单样式 */
 .lll_single_settingsDropdown {
     position: absolute;
-    top: calc(100% + 8px);
+    top: 36px;
     right: 12px;
     width: 240px;
     background: rgba(28, 32, 47, 0.95);
@@ -1979,14 +1980,16 @@ GM_addStyle(`
             return (BattleData.playerLoot[playerName]?.items ?? [])
                 .map(item => {
                     const unitPrice = Market.getPriceByHrid(item.hrid) ?? 0;
+                    const isAboveThreshold = unitPrice >= threshold;
                     return {
                         hrid: item.hrid,
                         count: item.count,
                         unitPrice,
                         totalPrice: unitPrice * item.count,
+                        isAboveThreshold,
                     };
                 })
-                .filter(item => !filterEnabled || item.unitPrice >= threshold || item.hrid.includes('_chest'))
+                .filter(item => !filterEnabled || item.isAboveThreshold || item.hrid.includes('_chest'))
                 .sort((a, b) => (b.unitPrice - a.unitPrice) || (b.totalPrice - a.totalPrice));
         }
 
@@ -2351,12 +2354,10 @@ GM_addStyle(`
                 min: '0',
                 step: '1',
                 value: String(Config.ui.minUnitPriceK),
-                disabled: !Config.ui.filterEnabled,
             });
 
             filterToggle.addEventListener('change', () => {
                 Config.ui.filterEnabled = filterToggle.checked;
-                thresholdInput.disabled = !filterToggle.checked;
                 ConfigManager.saveConfig();
                 this.render();
             });
@@ -2676,7 +2677,7 @@ GM_addStyle(`
             const grid = Ui.div('lll_single_players');
             grid.style.setProperty('--lll-player-columns', layoutInfo.columns.toString());
             if (layoutInfo.useMobileHorizontal) {
-                grid.style.width = `${layoutInfo.gridContentWidth}px`;
+                grid.style.width = layoutInfo.columns === 1 ? '100%' : `${layoutInfo.gridContentWidth}px`;
             } else if (layoutInfo.gridMinWidth > 0) {
                 grid.style.minWidth = `${layoutInfo.gridMinWidth}px`;
             }
@@ -2694,7 +2695,11 @@ GM_addStyle(`
                 const bodyPaddingX = (parseFloat(bodyStyle.paddingLeft) || 0) + (parseFloat(bodyStyle.paddingRight) || 0);
                 const measuredBodyWidth = this.body.clientWidth || this.root.clientWidth || window.innerWidth;
                 const availableWidth = Math.max(0, measuredBodyWidth - bodyPaddingX);
-                const scale = layoutInfo.gridContentWidth > 0 && availableWidth > 0 ? Math.min(1, availableWidth / layoutInfo.gridContentWidth) : 1;
+                const scale = layoutInfo.columns === 1
+                    ? 1
+                    : layoutInfo.gridContentWidth > 0 && availableWidth > 0
+                        ? Math.min(1, availableWidth / layoutInfo.gridContentWidth)
+                        : 1;
                 grid.style.transformOrigin = 'top left';
                 grid.style.transform = scale < 1 ? `scale(${scale})` : 'none';
                 viewport.style.height = grid.scrollHeight > 0 ? `${Math.ceil(grid.scrollHeight * scale)}px` : '';
@@ -2852,10 +2857,12 @@ GM_addStyle(`
         }
 
         renderLootItem(item) {
+            const itemNameClasses = ['lll_single_itemName'];
+            if (item.isAboveThreshold) itemNameClasses.push('lll_single_itemNameHighValue');
             const row = Ui.div('lll_single_item', [
                 Ui.div('lll_single_itemCount', Utils.formatNumber(item.count)),
                 Ui.itemSvgIcon(item.hrid, 20, true),
-                Ui.div('lll_single_itemName', Localizer.hridToName(item.hrid)),
+                Ui.div(itemNameClasses.join(' '), Localizer.hridToName(item.hrid)),
             ]);
             row.dataset.lootHrid = item.hrid;
             Tooltip.attach(row, () => `${UiLocale.unitPriceLabel[language]}: ${Utils.formatPrice(item.unitPrice)}\n${UiLocale.totalPriceLabel[language]}: ${Utils.formatPrice(item.totalPrice)}`, {
